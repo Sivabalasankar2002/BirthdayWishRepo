@@ -1,0 +1,57 @@
+import boto3
+from datetime import datetime
+import os
+import json
+import urllib.request
+
+# Initialize DynamoDB resource
+dynamodb = boto3.resource('dynamodb')
+table = dynamodb.Table('BirthdayWishes')
+
+def lambda_handler(event, context):
+    today = datetime.utcnow().strftime('%m-%d')  # format: "06-28"
+    print(f"Today is: {today}")
+    
+    response = table.scan()
+    
+    for item in response.get('Items', []):
+        dob = item.get('dob')  # Expected format: "YYYY-MM-DD"
+        if not dob:
+            continue
+
+        mmdd = "-".join(dob.split("-")[1:])  # Extract MM-DD
+        print(f"Checking: {item.get('name')} → DOB: {dob} → MM-DD: {mmdd}")
+        
+        if mmdd == today:
+            name = item.get('name')
+            message = item.get('message')
+            send_gchat_message(name, message)
+            print(f"✅ Sent birthday message to: {name}")
+
+    return {
+        'statusCode': 200,
+        'body': 'Checked all birthdays for today.'
+    }
+
+def send_gchat_message(name, message):
+    webhook_url = os.environ.get('GCHAT_WEBHOOK_URL')
+
+    if not webhook_url:
+        raise ValueError("Missing GCHAT_WEBHOOK_URL environment variable.")
+
+    payload = {
+        "text": f"🎉 Happy Birthday, *{name}*! 🎂\n\n{message}"
+    }
+
+    data = json.dumps(payload).encode("utf-8")
+
+    req = urllib.request.Request(
+        webhook_url,
+        data=data,
+        headers={"Content-Type": "application/json"},
+        method="POST"
+    )
+
+    with urllib.request.urlopen(req) as response:
+        result = response.read().decode()
+        print(f"GChat Response: {result}")
